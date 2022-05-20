@@ -106,19 +106,20 @@ def getRowMask(n, r, vec_size):
     mask = r*n*[0.0] + n*[1.0] +  (vec_size-(r+1)*n)* [0.0]
     return mask
 
+def maskMatrix(graph, mask):
+    return graph*mask
+
 def computeDooLittleDecomp(graph, n, inverse_times_client):
     vec_size = graph.program.vec_size 
     print("IN SERVER:", inverse_times_client)
     i = inverse_times_client
     if inverse_times_client == 0:
         laplacian = computeGLaplacian(graph, n)
-        current_computations[0] = laplacian
-        upper = (n*[1.0] + (vec_size-n)*[0.0]) * laplacian
-        lower = (n*([1.0] + (n-1)*[0.0]) + (vec_size-n*n)* [0.0]) * laplacian
-        # current_computations[0] = laplacian
-        # current_computations[1] = upper
-        # current_computations[2] = lower
-        ret = laplacian + (upper >> n*n) + (lower >> 2*n*n)
+        remover = n * [0.0] + (n-1) * ([0.0] + (n-1)* [1.0]) + (vec_size - n*n) * [0.0]
+        laplacian = remover * laplacian + ([1.0] + (vec_size-1) * [0.0])
+        upper = (n*n)*[0.0]+[1.0] + (vec_size-n*n-1 )*[0.0] #(n*[1.0] + (vec_size-n)*[0.0]) * laplacian
+        lower = (2*n*n)*[0.0]+[1.0] + (vec_size-2*n*n-1)*[0.0] #(n*([1.0] + (n-1)*[0.0]) + (vec_size-n*n)* [0.0]) * laplacian
+        ret = laplacian + upper + lower #(upper >> n*n) + (lower >> 2*n*n)
     else:
         matrix = graph * ((n*n) * [1.0] + (vec_size-n*n) * [0.0])
         upper = graph * ((n*n) * [0.0] + (n*n) * [1.0] + (vec_size-2*n*n) * [0.0]) << (n*n)
@@ -126,13 +127,13 @@ def computeDooLittleDecomp(graph, n, inverse_times_client):
         inv_element = graph << (3*n*n)
         mask = getColumnMask(n, i-1, vec_size)
         inverse = copyFirstN2Times(inv_element, n)
-        inv_ujj = inverse * mask
-        lower = lower * inv_ujj
+        (n*([1.0] + (n-1)*[0.0]) + (vec_size-n*n)* [0.0])
+        mask2 = n*((i-1) * [1.0] + [0.0] + (n-i)*[1.0]) + (vec_size-n*n)*[0.0]
+        lower = maskMatrix(lower, inverse*mask) + mask2*lower
 
         lij = (i*n*[0.0] + i*[1.0] + (vec_size - (n+1)*i)* [0.0]) * lower
         temp1 = vec_size * [0.0]
         for j in range(i):
-            # ([1.0] + (vec_size-1)*[0.0]) >> j*(n+1)
             temp1 += (lij << ((i-j)*n+j)) * (j*n * [0.0] + [1.0] + (vec_size -j*n-1) * [0.0])
         for k in range(n):
             if k == 0:
@@ -141,54 +142,49 @@ def computeDooLittleDecomp(graph, n, inverse_times_client):
                 temp2 += upper * temp1 
             temp1 >>= 1  
         temp3 = vec_size * [0.0]
-        for t in range(1,i):
-            temp3 += temp2 * (n*[1.0] + (vec_size-n)*[0.0]) + (temp2 << t*n) * (n*[1.0] + (vec_size-n)*[0.0])
+        for t in range(i):
+            temp3 += temp2 * (n*[1.0] + (vec_size-n)*[0.0]) #+ (temp2 << t*n) * (n*[1.0] + (vec_size-n)*[0.0])
             temp2 <<= n
         if i == 1:
             temp3 = temp2
         temp3 >>= i*n
 
         mask = getRowMask(n, i, vec_size)
-        upper += matrix - temp3 
-        # uji = (i*(i*[0.0] + [1.0] + (n-1-i) * [0.0])+ (vec_size-i*n)*[0.0]) * upper
-        # temp1 = vec_size * [0.0]
-        # for j in range(i):
-        #     temp1 += (uji << (i + j*(n-1))) * (j*[0.0] + [1.0] + (vec_size-j-1) * [0.0])
-        # for k in range(n):
-        #     if k == 0:
-        #         temp2 = lower * temp1
-        #     else:
-        #         temp2 += lower * temp1
-        #     temp1 >>= n
-        # if i == 1:
-        #     temp3 = temp2
-        # else:
-        #     temp3 = temp2 + temp2 << 1
-        # temp3 >>= i
-        # mask = getColumnMask(n, i, vec_size)            
-        # lower += mask * matrix + mask * temp3
+        upper += maskMatrix(matrix - temp3, mask) 
+        
+        uji = (i*(i*[0.0] + [1.0] + (n-1-i) * [0.0])+ (vec_size-i*n)*[0.0]) * upper
+        temp1 = vec_size * [0.0]
+        for j in range(i):
+            temp1 += (uji << (i + j*(n-1))) * (j*[0.0] + [1.0] + (vec_size-j-1) * [0.0])
+        for k in range(n):
+            if k == 0:
+                temp2 = lower * temp1
+            else:
+                temp2 += lower * temp1
+            temp1 >>= n
+        temp3 = vec_size * [0.0]
+        for t in range(i):
+            mask = getColumnMask(n,t, vec_size)
+            temp3 += maskMatrix(temp2, mask) << t
+        if i == 1:
+            temp3 = temp2        
+        temp3 >>= i
+        mask = getColumnMask(n, i, vec_size)            
+        lower += maskMatrix(matrix - temp3, mask)
         ret = matrix + (upper >> n*n) + (lower >> 2*n*n)
-
-    if inverse_times_client > n:
-        determinant = vec_size * [0.0]
-        for i in range(n):
-            diag = vec_size * [0.0]
-            diag[i*n+i] = 1
-            determinant *= ((upper * diag) << (i*(n+1)))
-        ret = determinant
     return ret
 
-#     # remover = n * [0.0] + (n-1) * ([0.0] + (n-1) [1.0]) + (vec_size - n*n) * [0.0]
-#     # graph = remover * graph + ([1.0] + (vec_size-1) * [0.0])
 
-
-
+def computeDiagonalMult(vector, n):
+    mult = 1
+    for i in range(n):
+        mult *= vector[i*n+i]
+    return mult
 # This is the dummy analytic service
 # You will implement this service based on your selected algorithm
 # you can use other parameters as global variables !!! do not change the signature of this function
 
 inverse_times_client = 0 # same variable for client  
-current_computations = [None,  None, None] # [0] -> laplacian, [1] -> upper, [2] -> lower
 def graphanalticprogram(graph):
     ret = computeDooLittleDecomp(graph, n, inverse_times_client)
     return ret
@@ -212,7 +208,7 @@ class EvaProgramDriver(EvaProgram):
 # If you require additional parameters, add them
 def simulate(n):
     global inverse_times_client
-    m = 16*4
+    m = 32*32*4
     print("Will start simulation for ", n)
     config = {}
     config['warn_vec_size'] = 'false'
@@ -229,8 +225,8 @@ def simulate(n):
             Output('ReturnedValue', reval)
         
         prog = graphanaltic
-        prog.set_output_ranges(60)
-        prog.set_input_scales(60)
+        prog.set_output_ranges(45)
+        prog.set_input_scales(45)
 
         print("Compiling the Program")
         start = timeit.default_timer()
@@ -254,7 +250,11 @@ def simulate(n):
         # print(type(outputs))
         arr = outputs["ReturnedValue"]
         upper = arr[n*n:2*n*n]
-        arr[3*n*n] = 1/ upper[inverse_times_client]
+
+        laplacian = arr[:n*n]
+        inverseee = 1/ upper[inverse_times_client*n+inverse_times_client]
+        print("inv ujj", inverseee)
+        arr[3*n*n] = inverseee
         inputs = {"Graph": arr}
         inverse_times_client += 1
         executiontime = (timeit.default_timer() - start) * 1000.0 #ms
@@ -266,10 +266,17 @@ def simulate(n):
         start = timeit.default_timer()
         reference = evaluate(compiled_multfunc, inputs)
         referenceexecutiontime = (timeit.default_timer() - start) * 1000.0 #ms
-    
+    determinant = computeDiagonalMult(upper,n)
+
     # Change this if you want to output something or comment out the two lines below
     # for key in outputs:
-    print(inputs["Graph"][:n*n],reference["ReturnedValue"][:n*n], nx.laplacian_matrix(GG))
+    # print(upper)
+    print(np.array(laplacian).reshape(n,n), nx.laplacian_matrix(GG).toarray())
+    print(np.array(upper).reshape(n,n))
+    print()
+    print(np.array(arr[2*n*n:3*n*n]).reshape(n,n))
+    print(determinant, len(list(nx.algorithms.tree.mst.SpanningTreeIterator(GG))))
+
 
     mse = valuation_mse(outputs, reference) # since CKKS does approximate computations, this is an important measure that depicts the amount of error
 
@@ -285,7 +292,7 @@ if __name__ == "__main__":
     resultfile.close()
     
     print("Simulation campaing started:")
-    for nc in range(4,64,4): # Node counts for experimenting various graph sizes
+    for nc in range(32,64,4): # Node counts for experimenting various graph sizes
         n = nc
         resultfile = open("results.csv", "a") 
         for i in range(simcnt):
