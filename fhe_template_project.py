@@ -109,6 +109,15 @@ def getRowMask(n, r, vec_size):
 def maskMatrix(graph, mask):
     return graph*mask
 
+def vector_mult(vector1, vector2):
+    return vector1 * vector2
+
+def dummy_vector(lij, i, j, n, vec_size):
+    return (lij << ((i-j)*n+j)) * (j*n * [0.0] + [1.0] + (vec_size -j*n-1) * [0.0])
+
+def dummy_vector2(uji, i, j, n, vec_size):
+    return (uji << (i + j*(n-1))) * (j*[0.0] + [1.0] + (vec_size-j-1) * [0.0])
+
 def computeDooLittleDecomp(graph, n, inverse_times_client):
     vec_size = graph.program.vec_size 
     print("IN SERVER:", inverse_times_client)
@@ -134,16 +143,16 @@ def computeDooLittleDecomp(graph, n, inverse_times_client):
         lij = (i*n*[0.0] + i*[1.0] + (vec_size - (n+1)*i)* [0.0]) * lower
         temp1 = vec_size * [0.0]
         for j in range(i):
-            temp1 += (lij << ((i-j)*n+j)) * (j*n * [0.0] + [1.0] + (vec_size -j*n-1) * [0.0])
+            temp1 += dummy_vector(lij, i, j, n, vec_size)
         for k in range(n):
             if k == 0:
-                temp2 = upper * temp1
+                temp2 = vector_mult(upper, temp1)
             else:
-                temp2 += upper * temp1 
+                temp2 += vector_mult(upper, temp1)
             temp1 >>= 1  
         temp3 = vec_size * [0.0]
         for t in range(i):
-            temp3 += temp2 * (n*[1.0] + (vec_size-n)*[0.0]) #+ (temp2 << t*n) * (n*[1.0] + (vec_size-n)*[0.0])
+            temp3 += vector_mult(temp2, (n*[1.0] + (vec_size-n)*[0.0]))
             temp2 <<= n
         if i == 1:
             temp3 = temp2
@@ -155,12 +164,12 @@ def computeDooLittleDecomp(graph, n, inverse_times_client):
         uji = (i*(i*[0.0] + [1.0] + (n-1-i) * [0.0])+ (vec_size-i*n)*[0.0]) * upper
         temp1 = vec_size * [0.0]
         for j in range(i):
-            temp1 += (uji << (i + j*(n-1))) * (j*[0.0] + [1.0] + (vec_size-j-1) * [0.0])
+            temp1 += dummy_vector2(uji, i, j, n, vec_size)
         for k in range(n):
             if k == 0:
-                temp2 = lower * temp1
+                temp2 = vector_mult(lower, temp1)
             else:
-                temp2 += lower * temp1
+                temp2 += vector_mult(lower, temp1)
             temp1 >>= n
         temp3 = vec_size * [0.0]
         for t in range(i):
@@ -216,7 +225,6 @@ def simulate(n):
     config['rescaler'] = 'always'
     config['balance_reductions'] = 'true'
     inputs, GG = prepareInput(n, m)
-
     while inverse_times_client < n:
         graphanaltic = EvaProgramDriver("graphanaltic", vec_size=m,n=n)
         with graphanaltic:
@@ -252,9 +260,7 @@ def simulate(n):
         upper = arr[n*n:2*n*n]
 
         laplacian = arr[:n*n]
-        inverseee = 1/ upper[inverse_times_client*n+inverse_times_client]
-        print("inv ujj", inverseee)
-        arr[3*n*n] = inverseee
+        arr[3*n*n] = 1/ upper[inverse_times_client*n+inverse_times_client]
         inputs = {"Graph": arr}
         inverse_times_client += 1
         executiontime = (timeit.default_timer() - start) * 1000.0 #ms
@@ -266,17 +272,8 @@ def simulate(n):
         start = timeit.default_timer()
         reference = evaluate(compiled_multfunc, inputs)
         referenceexecutiontime = (timeit.default_timer() - start) * 1000.0 #ms
-    determinant = computeDiagonalMult(upper,n)
-
-    # Change this if you want to output something or comment out the two lines below
-    # for key in outputs:
-    # print(upper)
-    print(np.array(laplacian).reshape(n,n), nx.laplacian_matrix(GG).toarray())
-    print(np.array(upper).reshape(n,n))
-    print()
-    print(np.array(arr[2*n*n:3*n*n]).reshape(n,n))
-    print(determinant, len(list(nx.algorithms.tree.mst.SpanningTreeIterator(GG))))
-
+        determinant = computeDiagonalMult(upper,n)
+        print(determinant, len(list(nx.algorithms.tree.mst.SpanningTreeIterator(GG))))
 
     mse = valuation_mse(outputs, reference) # since CKKS does approximate computations, this is an important measure that depicts the amount of error
 
@@ -292,8 +289,9 @@ if __name__ == "__main__":
     resultfile.close()
     
     print("Simulation campaing started:")
-    for nc in range(32,64,4): # Node counts for experimenting various graph sizes
-        n = nc
+    # for nc in range(4,64,4): # Node counts for experimenting various graph sizes
+    for _ in range(16):  
+        n = 4#nc
         resultfile = open("results.csv", "a") 
         for i in range(simcnt):
             #Call the simulator
@@ -301,6 +299,5 @@ if __name__ == "__main__":
             res = str(n) + "," + str(i) + "," + str(compiletime) + "," + str(keygenerationtime) + "," +  str(encryptiontime) + "," +  str(executiontime) + "," +  str(decryptiontime) + "," +  str(referenceexecutiontime) + "," +  str(mse) + "\n"
             print(res)
             resultfile.write(res)
-            break
-        break
+      
         resultfile.close()
