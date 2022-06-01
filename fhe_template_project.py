@@ -120,10 +120,15 @@ def dummy_vector2(uji, i, j, n, vec_size):
 
 
 def copy_vector_in(vector, n):
-    # vec_size = 4 * n
+    # vec_size = 4 * n*n
     # for matrix multiplication vec_size == n for rotations
     # with this operation rotation will on vector will be like vec_size == n
-    return vector + (vector >> (n*n)) #+ (vector >> (2*n*n)) + (vector >> (3*n*n))
+    vec_size = vector.program.vec_size
+    i = 1
+    while i < int(vec_size/(n*n)):
+        vector += vector >> (i*n*n)
+        i <<= 2
+    return vector
 
 def get_sigma_perm_vector(n, k):
     perm = np.arange(0, n*n, 1)
@@ -166,10 +171,8 @@ def lin_transformation_cs(vector, n, k):
 def lin_transformation_rs(vector, n, k):
     return vector << (n*k)
 
-def matrix_mult(vector, n):
-    vec_size = vector.program.vec_size
-    A = vector * ((n*n) * [1.0] + (vec_size - n*n) * [0.0])
-    B = vector * ((n*n) * [0.0] + (n*n) * [1.0] + (vec_size - 2*n*n)* [0.0])
+def matrix_mult(A, B, n):
+    vec_size = A.program.vec_size
     A = copy_vector_in(A, n)
     B = copy_vector_in(B, n)
     A0 = lin_transformation_sigma(A, n)
@@ -193,57 +196,21 @@ def computeDooLittleDecomp(graph, n, inverse_times_client):
         lower = (2*n*n)*[0.0]+[1.0] + (vec_size-2*n*n-1)*[0.0] #(n*([1.0] + (n-1)*[0.0]) + (vec_size-n*n)* [0.0]) * laplacian
         ret = laplacian + upper + lower #(upper >> n*n) + (lower >> 2*n*n)
     else:
-        matrix = graph * ((n*n) * [1.0] + (vec_size-n*n) * [0.0])
+        laplacian = graph * ((n*n) * [1.0] + (vec_size-n*n) * [0.0])
         upper = graph * ((n*n) * [0.0] + (n*n) * [1.0] + (vec_size-2*n*n) * [0.0]) << (n*n)
         lower = graph * ((2*n*n) * [0.0] + (n*n) * [1.0] + (vec_size-3*n*n) * [0.0]) << (2*n*n)
         inv_element = graph << (3*n*n)
         mask = getColumnMask(n, i-1, vec_size)
         inverse = copyFirstN2Times(inv_element, n)
-        (n*([1.0] + (n-1)*[0.0]) + (vec_size-n*n)* [0.0])
         mask2 = n*((i-1) * [1.0] + [0.0] + (n-i)*[1.0]) + (vec_size-n*n)*[0.0]
         lower = maskMatrix(lower, inverse*mask) + mask2*lower
-
-        lij = (i*n*[0.0] + i*[1.0] + (vec_size - (n+1)*i)* [0.0]) * lower
-        temp1 = vec_size * [0.0]
-        for j in range(i):
-            temp1 += dummy_vector(lij, i, j, n, vec_size)
-        for k in range(n):
-            if k == 0:
-                temp2 = vector_mult(upper, temp1)
-            else:
-                temp2 += vector_mult(upper, temp1)
-            temp1 >>= 1  
-        temp3 = vec_size * [0.0]
-        for t in range(i):
-            temp3 += vector_mult(temp2, (n*[1.0] + (vec_size-n)*[0.0]))
-            temp2 <<= n
-        if i == 1:
-            temp3 = temp2
-        temp3 >>= i*n
-
-        mask = getRowMask(n, i, vec_size)
-        upper += maskMatrix(matrix - temp3, mask) 
-        
-        uji = (i*(i*[0.0] + [1.0] + (n-1-i) * [0.0])+ (vec_size-i*n)*[0.0]) * upper
-        temp1 = vec_size * [0.0]
-        for j in range(i):
-            temp1 += dummy_vector2(uji, i, j, n, vec_size)
-        for k in range(n):
-            if k == 0:
-                temp2 = vector_mult(lower, temp1)
-            else:
-                temp2 += vector_mult(lower, temp1)
-            temp1 >>= n
-        temp3 = vec_size * [0.0]
-        for t in range(i):
-            mask = getColumnMask(n,t, vec_size)
-            temp3 += maskMatrix(temp2, mask) << t
-        if i == 1:
-            temp3 = temp2        
-        temp3 >>= i
-        mask = getColumnMask(n, i, vec_size)            
-        lower += maskMatrix(matrix - temp3, mask)
-        ret = matrix + (upper >> n*n) + (lower >> 2*n*n)
+        mat = matrix_mult(lower, upper, n)
+        row_mask = getRowMask(n,i,vec_size)
+        diff = laplacian - mat
+        upper += maskMatrix(diff, row_mask)
+        col_mask = getColumnMask(n, i, vec_size)            
+        lower += maskMatrix(diff, col_mask)
+        ret = laplacian + (upper >> n*n) + (lower >> 2*n*n)
     return ret
 
 
@@ -262,7 +229,7 @@ def graphanalticprogram(graph):
     # print(get_sigma_perm_vector(n, 2))
     # ret = n*[0]
     # ret = ret + graph
-    return matrix_mult(graph, n)
+    return computeDooLittleDecomp(graph, n, inverse_times_client)
 
     
 # Do not change this 
@@ -284,7 +251,7 @@ class EvaProgramDriver(EvaProgram):
 # If you require additional parameters, add them
 def simulate(n):
     global inverse_times_client
-    m = 4*4*2
+    m = n*n*4
     print("Will start simulation for ", n)
     config = {}
     config['warn_vec_size'] = 'false'
@@ -292,11 +259,6 @@ def simulate(n):
     config['rescaler'] = 'always'
     config['balance_reductions'] = 'true'
     inputs, GG = prepareInput(n, m)
-    matrix1 = np.array([1,2,3,4, 1,2,3,4, 1,2,3,4, 1,2,3,4])
-    # matrix2 = np.array([1,2,3,4, 1,2,3,4, 1,2,3,4, 1,2,3,4])
-    matrix2 = np.array([2,2,2,2, 2,2,2,2, 2,2,2,2, 2,2,2,2])
-    inputs["Graph"] = matrix1.tolist() + matrix2.tolist() +(32-32) * [0.0]
-    matmul = np.matmul(matrix1.reshape((4,4)), matrix2.reshape((4,4))).reshape(-1)  
     while inverse_times_client < n:
         graphanaltic = EvaProgramDriver("graphanaltic", vec_size=m,n=n)
         with graphanaltic:
@@ -328,8 +290,6 @@ def simulate(n):
         encOutputs = public_ctx.execute(compiled_multfunc, encInputs)        
         outputs = secret_ctx.decrypt(encOutputs, signature)
         reference = evaluate(compiled_multfunc, inputs)
-        print(reference["ReturnedValue"], matmul)
-        break
         # print(type(outputs))
         arr = outputs["ReturnedValue"]
         upper = arr[n*n:2*n*n]
@@ -368,7 +328,7 @@ if __name__ == "__main__":
     print("Simulation campaing started:")
     # for nc in range(4,64,4): # Node counts for experimenting various graph sizes
     for _ in range(16):  
-        n = 4#nc
+        n = 16#nc
         resultfile = open("results.csv", "a") 
         for i in range(simcnt):
             #Call the simulator
