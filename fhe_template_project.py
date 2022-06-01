@@ -118,6 +118,69 @@ def dummy_vector(lij, i, j, n, vec_size):
 def dummy_vector2(uji, i, j, n, vec_size):
     return (uji << (i + j*(n-1))) * (j*[0.0] + [1.0] + (vec_size-j-1) * [0.0])
 
+
+def copy_vector_in(vector, n):
+    # vec_size = 4 * n
+    # for matrix multiplication vec_size == n for rotations
+    # with this operation rotation will on vector will be like vec_size == n
+    return vector + (vector >> (n*n)) #+ (vector >> (2*n*n)) + (vector >> (3*n*n))
+
+def get_sigma_perm_vector(n, k):
+    perm = np.arange(0, n*n, 1)
+    if k >= 0:
+        perm -= n*k
+        perm = np.logical_and(0 <= perm, perm < (n-k))
+    else:
+        perm -= (n+k)*n
+        perm = np.logical_and(-k <= perm, perm < n)
+    return (perm.astype(float)+ 1e-10).tolist()
+
+def get_tau_perm_vector(n,k):
+    perm = np.zeros(n*n)
+    index = k+n*np.arange(0,n, 1).astype(int)
+    perm[index] = 1
+    return (perm.astype(float)+ 1e-10).tolist() 
+
+def lin_transformation_sigma(vector, n):
+    for k in range(-n+1, n):
+        if k == 1-n:
+            ret = get_sigma_perm_vector(n, k) * (vector << k)
+        else:
+            ret += get_sigma_perm_vector(n, k) * (vector << k)
+    return ret 
+
+def lin_transformation_tau(vector, n):
+    ret = get_tau_perm_vector(n, 0) * vector
+    for k in range(1, n):
+        ret += get_tau_perm_vector(n,k) * (vector << n*k)
+    return ret
+
+def get_col_shift_perm(n, k):
+    perm = np.arange(0,n*n,1) % n
+    return (np.logical_and(0 <= perm, perm < (n-k)).astype(float)+ 1e-10).tolist(), (np.logical_and((n-k) <= perm, perm < n).astype(float)+ 1e-10).tolist()
+
+def lin_transformation_cs(vector, n, k):
+    perm1, perm2 = get_col_shift_perm(n, k)
+    return  ((vector << k) * perm1) + ((vector << (k-n)) * perm2)
+
+def lin_transformation_rs(vector, n, k):
+    return vector << (n*k)
+
+def matrix_mult(vector, n):
+    vec_size = vector.program.vec_size
+    A = vector * ((n*n) * [1.0] + (vec_size - n*n) * [0.0])
+    B = vector * ((n*n) * [0.0] + (n*n) * [1.0] + (vec_size - 2*n*n)* [0.0])
+    A = copy_vector_in(A, n)
+    B = copy_vector_in(B, n)
+    A0 = lin_transformation_sigma(A, n)
+    B0 = lin_transformation_tau(B, n)
+    AB = A0*B0
+    for k in range(1, n):
+        A = lin_transformation_cs(A0, n, k)
+        B = lin_transformation_rs(B0, n, k)
+        AB += A*B
+    return AB
+
 def computeDooLittleDecomp(graph, n, inverse_times_client):
     vec_size = graph.program.vec_size 
     print("IN SERVER:", inverse_times_client)
@@ -195,8 +258,12 @@ def computeDiagonalMult(vector, n):
 
 inverse_times_client = 0 # same variable for client  
 def graphanalticprogram(graph):
-    ret = computeDooLittleDecomp(graph, n, inverse_times_client)
-    return ret
+    # ret = computeDooLittleDecomp(graph, n, inverse_times_client)
+    # print(get_sigma_perm_vector(n, 2))
+    # ret = n*[0]
+    # ret = ret + graph
+    return matrix_mult(graph, n)
+
     
 # Do not change this 
 # the parameter n can be passed in the call from simulate function
@@ -217,7 +284,7 @@ class EvaProgramDriver(EvaProgram):
 # If you require additional parameters, add them
 def simulate(n):
     global inverse_times_client
-    m = 32*32*4
+    m = 4*4*2
     print("Will start simulation for ", n)
     config = {}
     config['warn_vec_size'] = 'false'
@@ -225,6 +292,11 @@ def simulate(n):
     config['rescaler'] = 'always'
     config['balance_reductions'] = 'true'
     inputs, GG = prepareInput(n, m)
+    matrix1 = np.array([1,2,3,4, 1,2,3,4, 1,2,3,4, 1,2,3,4])
+    # matrix2 = np.array([1,2,3,4, 1,2,3,4, 1,2,3,4, 1,2,3,4])
+    matrix2 = np.array([2,2,2,2, 2,2,2,2, 2,2,2,2, 2,2,2,2])
+    inputs["Graph"] = matrix1.tolist() + matrix2.tolist() +(32-32) * [0.0]
+    matmul = np.matmul(matrix1.reshape((4,4)), matrix2.reshape((4,4))).reshape(-1)  
     while inverse_times_client < n:
         graphanaltic = EvaProgramDriver("graphanaltic", vec_size=m,n=n)
         with graphanaltic:
@@ -253,8 +325,11 @@ def simulate(n):
         encryptiontime = (timeit.default_timer() - start) * 1000.0 #ms
         print("Execute")
         start = timeit.default_timer()
-        encOutputs = public_ctx.execute(compiled_multfunc, encInputs)
+        encOutputs = public_ctx.execute(compiled_multfunc, encInputs)        
         outputs = secret_ctx.decrypt(encOutputs, signature)
+        reference = evaluate(compiled_multfunc, inputs)
+        print(reference["ReturnedValue"], matmul)
+        break
         # print(type(outputs))
         arr = outputs["ReturnedValue"]
         upper = arr[n*n:2*n*n]
@@ -267,6 +342,8 @@ def simulate(n):
 
         start = timeit.default_timer()
         outputs = secret_ctx.decrypt(encOutputs, signature)
+        # print(outputs["ReturnedValue"])
+        # print(len(outputs["ReturnedValue"]))
         decryptiontime = (timeit.default_timer() - start) * 1000.0 #ms
 
         start = timeit.default_timer()
