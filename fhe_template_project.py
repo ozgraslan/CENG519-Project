@@ -96,11 +96,20 @@ def copyFirstN2Times(vector, n):
         i <<= 1
     return temp
 
-def getColumnMask(n, c, vec_size):
-    mask = (vec_size)*[0.0]
-    for i in range(n):
-        mask[i*n+c] = 1.0
-    return mask
+# def getColumnMask(n, c, value, vec_size):
+#     mask = (vec_size)*[0.0]
+#     for i in range(n):
+#         mask[i*n+c] = 1.0
+#     return mask
+def getColumnMask(n, c, vec_size, value=1.0):
+    mask = np.zeros(vec_size)
+    mask[np.arange(0,n,1)*n+c] = value
+    return mask.tolist()
+
+def getColumnMask2(n, c, vec_size, value=1.0):
+    mask = np.ones(vec_size)
+    mask[np.arange(0,n,1)*n+c] = value
+    return mask.tolist()
 
 def getRowMask(n, r, vec_size):
     mask = r*n*[0.0] + n*[1.0] +  (vec_size-(r+1)*n)* [0.0]
@@ -109,26 +118,52 @@ def getRowMask(n, r, vec_size):
 def maskMatrix(graph, mask):
     return graph*mask
 
-def vector_mult(vector1, vector2):
-    return vector1 * vector2
-
-def dummy_vector(lij, i, j, n, vec_size):
-    return (lij << ((i-j)*n+j)) * (j*n * [0.0] + [1.0] + (vec_size -j*n-1) * [0.0])
-
-def dummy_vector2(uji, i, j, n, vec_size):
-    return (uji << (i + j*(n-1))) * (j*[0.0] + [1.0] + (vec_size-j-1) * [0.0])
-
-
-def copy_vector_in(vector, n):
+def horizontal_concat(vector, n):
+    vec_size = vector.program.vec_size
+    num = int(vec_size/(n*n))
+    for i in range(n):
+        mask = getRowMask(n, i, vec_size)
+        if i == 0:
+            concat = mask * vector
+        else:
+            concat += (mask * vector)  >> ((num-i)*n)
+    while i < num:
+        concat += concat >> (i*n*n)
+        i <<= 2
+    return concat 
+def vertical_concat(vector, n, remove=False):
     # vec_size = 4 * n*n
     # for matrix multiplication vec_size == n for rotations
     # with this operation rotation will on vector will be like vec_size == n
     vec_size = vector.program.vec_size
+    if remove:
+        temp = vector* ((n*n) * [1.0] + (vec_size - n*n) * [0.0])
+    else:
+        temp = vector
+    
     i = 1
     while i < int(vec_size/(n*n)):
-        vector += vector >> (i*n*n)
+        temp += temp >> (i*n*n)
         i <<= 2
-    return vector
+    return temp 
+
+def prep_sigma_perm_dict(n):
+    sigma_perm_dict = {}
+    for k in range(-n+1, n):
+        sigma_perm_dict[k] = get_sigma_perm_vector(n, k)
+    return sigma_perm_dict
+
+def prep_tau_perm_dict(n):
+    tau_perm_dict = {}
+    for k in range(1, n):
+        tau_perm_dict[k] =  get_tau_perm_vector(n,k)
+    return tau_perm_dict
+
+def prep_col_shift_perm_dict(n):
+    col_shift_perm_dict = {}
+    for k in range(n):
+        col_shift_perm_dict[k] = get_col_shift_perm(n, k)
+    return col_shift_perm_dict
 
 def get_sigma_perm_vector(n, k):
     perm = np.arange(0, n*n, 1)
@@ -146,26 +181,26 @@ def get_tau_perm_vector(n,k):
     perm[index] = 1
     return (perm.astype(float)+ 1e-10).tolist() 
 
+def get_col_shift_perm(n, k):
+    perm = np.arange(0,n*n,1) % n
+    return (np.logical_and(0 <= perm, perm < (n-k)).astype(float)+ 1e-10).tolist(), (np.logical_and((n-k) <= perm, perm < n).astype(float)+ 1e-10).tolist()
+
 def lin_transformation_sigma(vector, n):
     for k in range(-n+1, n):
         if k == 1-n:
-            ret = get_sigma_perm_vector(n, k) * (vector << k)
+            ret = sigma_perm_dict[k] * (vector << k)
         else:
-            ret += get_sigma_perm_vector(n, k) * (vector << k)
+            ret += sigma_perm_dict[k] * (vector << k)
     return ret 
 
 def lin_transformation_tau(vector, n):
     ret = get_tau_perm_vector(n, 0) * vector
     for k in range(1, n):
-        ret += get_tau_perm_vector(n,k) * (vector << n*k)
+        ret += tau_perm_dict[k] * (vector << n*k)
     return ret
 
-def get_col_shift_perm(n, k):
-    perm = np.arange(0,n*n,1) % n
-    return (np.logical_and(0 <= perm, perm < (n-k)).astype(float)+ 1e-10).tolist(), (np.logical_and((n-k) <= perm, perm < n).astype(float)+ 1e-10).tolist()
-
 def lin_transformation_cs(vector, n, k):
-    perm1, perm2 = get_col_shift_perm(n, k)
+    perm1, perm2 = col_shift_perm_dict[k]
     return  ((vector << k) * perm1) + ((vector << (k-n)) * perm2)
 
 def lin_transformation_rs(vector, n, k):
@@ -173,63 +208,63 @@ def lin_transformation_rs(vector, n, k):
 
 def matrix_mult(A, B, n):
     vec_size = A.program.vec_size
-    A = copy_vector_in(A, n)
-    B = copy_vector_in(B, n)
+    A = vertical_concat(A, n)
+    B = vertical_concat(B, n)
     A0 = lin_transformation_sigma(A, n)
     B0 = lin_transformation_tau(B, n)
+    A0 = vertical_concat(A0, n, remove=True)
+    B0 = vertical_concat(B0, n, remove=True)
     AB = A0*B0
+    # A0 = horizontal_concat(A0, n)
     for k in range(1, n):
         A = lin_transformation_cs(A0, n, k)
         B = lin_transformation_rs(B0, n, k)
         AB += A*B
     return AB
 
-def computeDooLittleDecomp(graph, n, inverse_times_client):
+def computeDooLittleDecomp(graph, n, iteration, inverse):
     vec_size = graph.program.vec_size 
-    print("IN SERVER:", inverse_times_client)
-    i = inverse_times_client
-    if inverse_times_client == 0:
+    print("IN SERVER:", iteration)
+    i = iteration
+    if iteration == 0:
         laplacian = computeGLaplacian(graph, n)
         remover = n * [0.0] + (n-1) * ([0.0] + (n-1)* [1.0]) + (vec_size - n*n) * [0.0]
         laplacian = remover * laplacian + ([1.0] + (vec_size-1) * [0.0])
-        upper = (n*n)*[0.0]+[1.0] + (vec_size-n*n-1 )*[0.0] #(n*[1.0] + (vec_size-n)*[0.0]) * laplacian
-        lower = (2*n*n)*[0.0]+[1.0] + (vec_size-2*n*n-1)*[0.0] #(n*([1.0] + (n-1)*[0.0]) + (vec_size-n*n)* [0.0]) * laplacian
-        ret = laplacian + upper + lower #(upper >> n*n) + (lower >> 2*n*n)
+        upper = (n*n)*[0.0]+[1.0] + (vec_size-n*n-1 )*[0.0] 
+        lower = (2*n*n)*[0.0]+[1.0] + (vec_size-2*n*n-1)*[0.0]  
+        ret = laplacian + upper + lower  
     else:
         laplacian = graph * ((n*n) * [1.0] + (vec_size-n*n) * [0.0])
         upper = graph * ((n*n) * [0.0] + (n*n) * [1.0] + (vec_size-2*n*n) * [0.0]) << (n*n)
         lower = graph * ((2*n*n) * [0.0] + (n*n) * [1.0] + (vec_size-3*n*n) * [0.0]) << (2*n*n)
-        inv_element = graph << (3*n*n)
-        mask = getColumnMask(n, i-1, vec_size)
-        inverse = copyFirstN2Times(inv_element, n)
-        mask2 = n*((i-1) * [1.0] + [0.0] + (n-i)*[1.0]) + (vec_size-n*n)*[0.0]
-        lower = maskMatrix(lower, inverse*mask) + mask2*lower
-        mat = matrix_mult(lower, upper, n)
+        # mask = getColumnMask2(n, i-1, vec_size, inverse)
+        # lower *= mask        
+        multiplication = matrix_mult(lower, upper, n)
         row_mask = getRowMask(n,i,vec_size)
-        diff = laplacian - mat
+        diff = laplacian - multiplication
         upper += maskMatrix(diff, row_mask)
         col_mask = getColumnMask(n, i, vec_size)            
         lower += maskMatrix(diff, col_mask)
-        ret = laplacian + (upper >> n*n) + (lower >> 2*n*n)
+        ret = laplacian + (upper >> n*n) + (lower >> 2*n*n) 
     return ret
 
-
-def computeDiagonalMult(vector, n):
-    mult = 1
-    for i in range(n):
-        mult *= vector[i*n+i]
-    return mult
 # This is the dummy analytic service
 # You will implement this service based on your selected algorithm
 # you can use other parameters as global variables !!! do not change the signature of this function
 
-inverse_times_client = 0 # same variable for client  
+iteration = 0
+inverse = 1
+sigma_perm_dict, tau_perm_dict, col_shift_perm_dict = None, None, None
+
 def graphanalticprogram(graph):
-    # ret = computeDooLittleDecomp(graph, n, inverse_times_client)
-    # print(get_sigma_perm_vector(n, 2))
-    # ret = n*[0]
-    # ret = ret + graph
-    return computeDooLittleDecomp(graph, n, inverse_times_client)
+    # vec_size = graph.program.vec_size
+    # vector1 = graph * ((n*n) * [1.0] + (vec_size-n*n) * [0.0])
+    # vector2 = graph * ((n*n) * [0.0] + (n*n) * [1.0] + (vec_size-2*n*n) * [0.0]) << (n*n)
+    # # vector1 = copy_vector_in(vector1, n)
+    # # vector2 = copy_vector_in(vector2, n)
+
+    # return matrix_mult(vector1, vector2, n)
+    return computeDooLittleDecomp(graph, n, iteration, inverse)
 
     
 # Do not change this 
@@ -245,12 +280,95 @@ class EvaProgramDriver(EvaProgram):
     def __exit__(self, exc_type, exc_value, traceback):
         super().__exit__(exc_type, exc_value, traceback)
 
+def checkLaplacian(vector, GG, n):
+    computed_laplacian = np.array(vector[:n*n]).reshape((n,n))
+    correct_laplacian = nx.laplacian_matrix(GG).toarray()
+    correct_laplacian[0,0] = 1
+    correct_laplacian[0,1:n] = 0
+    correct_laplacian[1:n,0] = 0
+    diff = ~(np.abs(computed_laplacian-correct_laplacian) < 1e-2)
+    index = np.where(diff)
+    print("Laplacian Difference:", np.sum(diff)) 
+    if np.sum(diff) > 0:
+        print(index, computed_laplacian[index], correct_laplacian[index])
+
+def computeDiagonalMult(vector, n):
+    mult = 1
+    for i in range(n):
+        mult *= vector[i*n+i]
+    return mult
+
+def get_new_inputs(outputs, iteration):
+    global inverse
+    arr = outputs["ReturnedValue"]
+    upper = arr[n*n:2*n*n]
+    lower = np.array(arr[2*n*n:3*n*n])
+    inverse = 1.0/ upper[iteration*n+iteration]
+    mask = np.array(getColumnMask2(n, iteration, n*n, inverse))
+    lower *= mask 
+    arr[2*n*n:3*n*n] = lower.tolist() 
+    new_inputs = {"Graph": arr}
+    return new_inputs
+
+def run_one_sim_loop(inputs, config, iteration, vec_size, node_size):
+    graphanaltic = EvaProgramDriver("graphanaltic", vec_size=vec_size,n=node_size)
+    with graphanaltic:
+        graph = Input('Graph')
+        reval = graphanalticprogram(graph)
+        Output('ReturnedValue', reval)
+   
+    prog = graphanaltic
+    prog.set_output_ranges(45)
+    prog.set_input_scales(45)
+
+    start = timeit.default_timer()
+    compiler = CKKSCompiler(config=config)
+    compiled_multfunc, params, signature = compiler.compile(prog)
+    compiletime = (timeit.default_timer() - start) * 1000.0 #ms
+
+    start = timeit.default_timer()
+    public_ctx, secret_ctx = generate_keys(params)
+    keygenerationtime = (timeit.default_timer() - start) * 1000.0 #ms
+    
+    start = timeit.default_timer()
+    encInputs = public_ctx.encrypt(inputs, signature)
+    encryptiontime = (timeit.default_timer() - start) * 1000.0 #ms
+
+    start = timeit.default_timer()
+    encOutputs = public_ctx.execute(compiled_multfunc, encInputs)        
+    executiontime = (timeit.default_timer() - start) * 1000.0 #ms
+
+    start = timeit.default_timer()
+    outputs = secret_ctx.decrypt(encOutputs, signature)
+    decryptiontime = (timeit.default_timer() - start) * 1000.0 #ms
+
+    start = timeit.default_timer()
+    reference = evaluate(compiled_multfunc, inputs)
+    referenceexecutiontime = (timeit.default_timer() - start) * 1000.0 #ms
+
+    mse = valuation_mse(outputs, reference) # since CKKS does approximate computations, this is an important measure that depicts the amount of error
+
+    return outputs, (compiletime, keygenerationtime, encryptiontime, executiontime, decryptiontime, referenceexecutiontime, mse)
+
+def prep_matricies(n):
+    matrix1 = np.random.rand(n,n)
+    matrix2 = np.random.rand(n,n)
+    multiplication = np.matmul(matrix1, matrix2)
+    inp_vector = matrix1.reshape(-1).tolist() + matrix2.reshape(-1).tolist() + (2*n*n) * [0.0]
+    inputs = {"Graph": inp_vector}
+    return inputs, multiplication
+
 # Repeat the experiments and show averages with confidence intervals
 # You can modify the input parameters
 # n is the number of nodes in your graph
 # If you require additional parameters, add them
 def simulate(n):
-    global inverse_times_client
+    global iteration
+    global sigma_perm_dict, tau_perm_dict, col_shift_perm_dict
+    sigma_perm_dict = prep_sigma_perm_dict(n)
+    tau_perm_dict = prep_tau_perm_dict(n)
+    col_shift_perm_dict = prep_col_shift_perm_dict(n)
+
     m = n*n*4
     print("Will start simulation for ", n)
     config = {}
@@ -259,66 +377,27 @@ def simulate(n):
     config['rescaler'] = 'always'
     config['balance_reductions'] = 'true'
     inputs, GG = prepareInput(n, m)
-    while inverse_times_client < n:
-        graphanaltic = EvaProgramDriver("graphanaltic", vec_size=m,n=n)
-        with graphanaltic:
-            graph = Input('Graph')
-            reval = graphanalticprogram(graph)
-            Output('ReturnedValue', reval)
-        
-        prog = graphanaltic
-        prog.set_output_ranges(45)
-        prog.set_input_scales(45)
+    times_list = []
+    # inputs, multiplication = prep_matricies(n)
+    # outputs, others = run_one_sim_loop(inputs, config, iteration, m, n) 
+    # computed_multiplication = np.array(outputs["ReturnedValue"][:n*n]).reshape((n,n))  
+    # diff = ~(np.abs(computed_multiplication-multiplication) < 1e-2)
+    # index = np.where(diff)
+    # print("Multiplication Difference:", np.sum(diff)) 
+    while iteration < n:
+        outputs, others = run_one_sim_loop(inputs, config, iteration, m, n)
+        inputs = get_new_inputs(outputs, iteration)
+        #checkLaplacian(outputs["ReturnedValue"], GG, n)
+        times_list.append(np.array(others))
+        iteration += 1
 
-        print("Compiling the Program")
-        start = timeit.default_timer()
-        compiler = CKKSCompiler(config=config)
-        compiled_multfunc, params, signature = compiler.compile(prog)
-        compiletime = (timeit.default_timer() - start) * 1000.0 #ms
-
-        print("Generating the Keys")
-        start = timeit.default_timer()
-        public_ctx, secret_ctx = generate_keys(params)
-        keygenerationtime = (timeit.default_timer() - start) * 1000.0 #ms
-        
-        print("Encrypt Data")
-        start = timeit.default_timer()
-        encInputs = public_ctx.encrypt(inputs, signature)
-        encryptiontime = (timeit.default_timer() - start) * 1000.0 #ms
-        print("Execute")
-        start = timeit.default_timer()
-        encOutputs = public_ctx.execute(compiled_multfunc, encInputs)        
-        outputs = secret_ctx.decrypt(encOutputs, signature)
-        reference = evaluate(compiled_multfunc, inputs)
-        # print(type(outputs))
-        arr = outputs["ReturnedValue"]
-        upper = arr[n*n:2*n*n]
-
-        laplacian = arr[:n*n]
-        arr[3*n*n] = 1/ upper[inverse_times_client*n+inverse_times_client]
-        inputs = {"Graph": arr}
-        inverse_times_client += 1
-        executiontime = (timeit.default_timer() - start) * 1000.0 #ms
-
-        start = timeit.default_timer()
-        outputs = secret_ctx.decrypt(encOutputs, signature)
-        # print(outputs["ReturnedValue"])
-        # print(len(outputs["ReturnedValue"]))
-        decryptiontime = (timeit.default_timer() - start) * 1000.0 #ms
-
-        start = timeit.default_timer()
-        reference = evaluate(compiled_multfunc, inputs)
-        referenceexecutiontime = (timeit.default_timer() - start) * 1000.0 #ms
-        determinant = computeDiagonalMult(upper,n)
-        print(determinant, len(list(nx.algorithms.tree.mst.SpanningTreeIterator(GG))))
-
-    mse = valuation_mse(outputs, reference) # since CKKS does approximate computations, this is an important measure that depicts the amount of error
-
-    return compiletime, keygenerationtime, encryptiontime, executiontime, decryptiontime, referenceexecutiontime, mse
-
+    determinant = computeDiagonalMult(outputs["ReturnedValue"][n*n:2*n*n], n)
+    print("FHE Sol:", determinant, "Correct Sol", len(list(nx.algorithms.tree.mst.SpanningTreeIterator(GG))))
+    iteration = 0
+    return np.array(times_list).sum(0).tolist() # others 
 
 if __name__ == "__main__":
-    simcnt = 3 #The number of simulation runs, set it to 3 during development otherwise you will wait for a long time
+    simcnt = 100 #The number of simulation runs, set it to 3 during development otherwise you will wait for a long time
     # For benchmarking you must set it to a large number, e.g., 100
     #Note that file is opened in append mode, previous results will be kept in the file
     resultfile = open("results.csv", "a")  # Measurement results are collated in this file for you to plot later on
@@ -326,15 +405,17 @@ if __name__ == "__main__":
     resultfile.close()
     
     print("Simulation campaing started:")
-    # for nc in range(4,64,4): # Node counts for experimenting various graph sizes
-    for _ in range(16):  
-        n = 16#nc
+    for nc in range(4,64,4): # Node counts for experimenting various graph sizes
+        n = nc
         resultfile = open("results.csv", "a") 
         for i in range(simcnt):
             #Call the simulator
-            compiletime, keygenerationtime, encryptiontime, executiontime, decryptiontime, referenceexecutiontime, mse = simulate(n)
-            res = str(n) + "," + str(i) + "," + str(compiletime) + "," + str(keygenerationtime) + "," +  str(encryptiontime) + "," +  str(executiontime) + "," +  str(decryptiontime) + "," +  str(referenceexecutiontime) + "," +  str(mse) + "\n"
-            print(res)
-            resultfile.write(res)
+            try:
+                compiletime, keygenerationtime, encryptiontime, executiontime, decryptiontime, referenceexecutiontime, mse = simulate(n)
+                res = str(n) + "," + str(i) + "," + str(compiletime) + "," + str(keygenerationtime) + "," +  str(encryptiontime) + "," +  str(executiontime) + "," +  str(decryptiontime) + "," +  str(referenceexecutiontime) + "," +  str(mse) + "\n"
+                print(res)
+                resultfile.write(res)
+            except Exception as e:
+                print(e, "at node count:", n, "sim count:", i)
       
         resultfile.close()
