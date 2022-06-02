@@ -47,6 +47,7 @@ def printGraph(graph,n):
 
 # Eva requires special input, this function prepares the eva input
 # Eva will then encrypt them
+# Also returned networkx graph object to compute correct number of spanning tress
 def prepareInput(n, m):
     input = {}
     GG = generateGraph(n,3,0.5)
@@ -58,11 +59,10 @@ def rowSum(graph, n):
     # summing rows of the matrix code is taken from eva.std.numeric.horizontal_sum
     vec_size = graph.program.vec_size 
     x = graph
-    i = 1 
-    while i < n: # different from summing all the elements in the vector, it sums up to node count, computing sum of each row 
-        y = x << i
+    y = x
+    for i in range(1,n): # different from summing all the elements in the vector, it sums up to node count, computing sum of each row 
+        y = y << 1
         x = y + x
-        i <<= 1
     
     column = n * ([1.0] + (n-1) * [0.0]) + (vec_size - n*n) * [0.0] # each row-sum is in the first column of the row
     return column * x
@@ -85,28 +85,12 @@ def computeGLaplacian(graph, n):
     laplacian = degree + neg_adj
     return laplacian
 
-def copyFirstN2Times(vector, n): 
-    # the first element of the vector copied n^2 times to fill first n^2 elements
-    vec_size = vector.program.vec_size
-    temp = ([1.0] + (vec_size-1)*[0.0]) * vector
-    i = 1
-    while i < n*n:
-        temp2 = temp >> i
-        temp = temp + temp2
-        i <<= 1
-    return temp
-
-# def getColumnMask(n, c, value, vec_size):
-#     mask = (vec_size)*[0.0]
-#     for i in range(n):
-#         mask[i*n+c] = 1.0
-#     return mask
-def getColumnMask(n, c, vec_size, value=1.0):
+def getColumnMaskZeros(n, c, vec_size, value=1.0):
     mask = np.zeros(vec_size)
     mask[np.arange(0,n,1)*n+c] = value
     return mask.tolist()
 
-def getColumnMask2(n, c, vec_size, value=1.0):
+def getColumnMaskOnes(n, c, vec_size, value=1.0):
     mask = np.ones(vec_size)
     mask[np.arange(0,n,1)*n+c] = value
     return mask.tolist()
@@ -118,54 +102,43 @@ def getRowMask(n, r, vec_size):
 def maskMatrix(graph, mask):
     return graph*mask
 
-def horizontal_concat(vector, n):
-    vec_size = vector.program.vec_size
-    num = int(vec_size/(n*n))
-    for i in range(n):
-        mask = getRowMask(n, i, vec_size)
-        if i == 0:
-            concat = mask * vector
-        else:
-            concat += (mask * vector)  >> ((num-i)*n)
-    while i < num:
-        concat += concat >> (i*n*n)
-        i <<= 2
-    return concat 
 def vertical_concat(vector, n, remove=False):
     # vec_size = 4 * n*n
     # for matrix multiplication vec_size == n for rotations
     # with this operation rotation will on vector will be like vec_size == n
+    # after matrix operations, the vector's redundant places are poluted and therefore 
+    # those places should be removed
     vec_size = vector.program.vec_size
     if remove:
         temp = vector* ((n*n) * [1.0] + (vec_size - n*n) * [0.0])
     else:
-        temp = vector
-    
-    i = 1
-    while i < int(vec_size/(n*n)):
-        temp += temp >> (i*n*n)
-        i <<= 2
+         temp = vector
+    temp += (temp >> (n*n)) + (temp << (n*n))
+    # i = 1
+    # while i < int(vec_size/(n*n)):
+    #     temp += temp >> (i*n*n)
+    #     i <<= 2
     return temp 
 
-def prep_sigma_perm_dict(n):
+def prep_sigma_perm_dict(n, m):
     sigma_perm_dict = {}
     for k in range(-n+1, n):
-        sigma_perm_dict[k] = get_sigma_perm_vector(n, k)
+        sigma_perm_dict[k] = get_sigma_perm_vector(n, k, m)
     return sigma_perm_dict
 
-def prep_tau_perm_dict(n):
+def prep_tau_perm_dict(n, m):
     tau_perm_dict = {}
-    for k in range(1, n):
-        tau_perm_dict[k] =  get_tau_perm_vector(n,k)
+    for k in range(0, n):
+        tau_perm_dict[k] =  get_tau_perm_vector(n, k, m)
     return tau_perm_dict
 
-def prep_col_shift_perm_dict(n):
+def prep_col_shift_perm_dict(n, m):
     col_shift_perm_dict = {}
     for k in range(n):
-        col_shift_perm_dict[k] = get_col_shift_perm(n, k)
+        col_shift_perm_dict[k] = get_col_shift_perm(n, k, m)
     return col_shift_perm_dict
 
-def get_sigma_perm_vector(n, k):
+def get_sigma_perm_vector(n, k, m):
     perm = np.arange(0, n*n, 1)
     if k >= 0:
         perm -= n*k
@@ -173,17 +146,20 @@ def get_sigma_perm_vector(n, k):
     else:
         perm -= (n+k)*n
         perm = np.logical_and(-k <= perm, perm < n)
-    return (perm.astype(float)+ 1e-10).tolist()
+    size = perm.shape[0]
+    return (perm.astype(float)+ 1e-10).tolist() + (m-size) * [0.0]
 
-def get_tau_perm_vector(n,k):
+def get_tau_perm_vector(n,k, m):
     perm = np.zeros(n*n)
     index = k+n*np.arange(0,n, 1).astype(int)
     perm[index] = 1
-    return (perm.astype(float)+ 1e-10).tolist() 
+    size = perm.shape[0]
+    return (perm.astype(float)+ 1e-10).tolist() + (m-size) * [0.0]
 
-def get_col_shift_perm(n, k):
+def get_col_shift_perm(n, k, m):
     perm = np.arange(0,n*n,1) % n
-    return (np.logical_and(0 <= perm, perm < (n-k)).astype(float)+ 1e-10).tolist(), (np.logical_and((n-k) <= perm, perm < n).astype(float)+ 1e-10).tolist()
+    size = perm.shape[0] 
+    return (np.logical_and(0 <= perm, perm < (n-k)).astype(float)+ 1e-10).tolist() + (m-size) * [0.0], (np.logical_and((n-k) <= perm, perm < n).astype(float)+ 1e-10).tolist() + (m-size) * [0.0]
 
 def lin_transformation_sigma(vector, n):
     for k in range(-n+1, n):
@@ -194,7 +170,7 @@ def lin_transformation_sigma(vector, n):
     return ret 
 
 def lin_transformation_tau(vector, n):
-    ret = get_tau_perm_vector(n, 0) * vector
+    ret = tau_perm_dict[0] * vector
     for k in range(1, n):
         ret += tau_perm_dict[k] * (vector << n*k)
     return ret
@@ -215,7 +191,6 @@ def matrix_mult(A, B, n):
     A0 = vertical_concat(A0, n, remove=True)
     B0 = vertical_concat(B0, n, remove=True)
     AB = A0*B0
-    # A0 = horizontal_concat(A0, n)
     for k in range(1, n):
         A = lin_transformation_cs(A0, n, k)
         B = lin_transformation_rs(B0, n, k)
@@ -224,7 +199,7 @@ def matrix_mult(A, B, n):
 
 def computeDooLittleDecomp(graph, n, iteration, inverse):
     vec_size = graph.program.vec_size 
-    print("IN SERVER:", iteration)
+    # print("IN SERVER:", iteration)
     i = iteration
     if iteration == 0:
         laplacian = computeGLaplacian(graph, n)
@@ -237,13 +212,13 @@ def computeDooLittleDecomp(graph, n, iteration, inverse):
         laplacian = graph * ((n*n) * [1.0] + (vec_size-n*n) * [0.0])
         upper = graph * ((n*n) * [0.0] + (n*n) * [1.0] + (vec_size-2*n*n) * [0.0]) << (n*n)
         lower = graph * ((2*n*n) * [0.0] + (n*n) * [1.0] + (vec_size-3*n*n) * [0.0]) << (2*n*n)
-        # mask = getColumnMask2(n, i-1, vec_size, inverse)
+        # mask = getColumnMaskOnes(n, i-1, vec_size, inverse)
         # lower *= mask        
         multiplication = matrix_mult(lower, upper, n)
         row_mask = getRowMask(n,i,vec_size)
         diff = laplacian - multiplication
         upper += maskMatrix(diff, row_mask)
-        col_mask = getColumnMask(n, i, vec_size)            
+        col_mask = getColumnMaskZeros(n, i, vec_size)            
         lower += maskMatrix(diff, col_mask)
         ret = laplacian + (upper >> n*n) + (lower >> 2*n*n) 
     return ret
@@ -304,7 +279,7 @@ def get_new_inputs(outputs, iteration):
     upper = arr[n*n:2*n*n]
     lower = np.array(arr[2*n*n:3*n*n])
     inverse = 1.0/ upper[iteration*n+iteration]
-    mask = np.array(getColumnMask2(n, iteration, n*n, inverse))
+    mask = np.array(getColumnMaskOnes(n, iteration, n*n, inverse))
     lower *= mask 
     arr[2*n*n:3*n*n] = lower.tolist() 
     new_inputs = {"Graph": arr}
@@ -350,11 +325,11 @@ def run_one_sim_loop(inputs, config, iteration, vec_size, node_size):
 
     return outputs, (compiletime, keygenerationtime, encryptiontime, executiontime, decryptiontime, referenceexecutiontime, mse)
 
-def prep_matricies(n):
+def prep_matricies(n, m):
     matrix1 = np.random.rand(n,n)
     matrix2 = np.random.rand(n,n)
     multiplication = np.matmul(matrix1, matrix2)
-    inp_vector = matrix1.reshape(-1).tolist() + matrix2.reshape(-1).tolist() + (2*n*n) * [0.0]
+    inp_vector = matrix1.reshape(-1).tolist() + matrix2.reshape(-1).tolist() + (m-2*n*n) * [0.0]
     inputs = {"Graph": inp_vector}
     return inputs, multiplication
 
@@ -365,11 +340,10 @@ def prep_matricies(n):
 def simulate(n):
     global iteration
     global sigma_perm_dict, tau_perm_dict, col_shift_perm_dict
-    sigma_perm_dict = prep_sigma_perm_dict(n)
-    tau_perm_dict = prep_tau_perm_dict(n)
-    col_shift_perm_dict = prep_col_shift_perm_dict(n)
-
-    m = n*n*4
+    m = 4096*4
+    sigma_perm_dict = prep_sigma_perm_dict(n, m)
+    tau_perm_dict = prep_tau_perm_dict(n, m)
+    col_shift_perm_dict = prep_col_shift_perm_dict(n, m)
     print("Will start simulation for ", n)
     config = {}
     config['warn_vec_size'] = 'false'
@@ -378,7 +352,7 @@ def simulate(n):
     config['balance_reductions'] = 'true'
     inputs, GG = prepareInput(n, m)
     times_list = []
-    # inputs, multiplication = prep_matricies(n)
+    # inputs, multiplication = prep_matricies(n, m)
     # outputs, others = run_one_sim_loop(inputs, config, iteration, m, n) 
     # computed_multiplication = np.array(outputs["ReturnedValue"][:n*n]).reshape((n,n))  
     # diff = ~(np.abs(computed_multiplication-multiplication) < 1e-2)
@@ -387,35 +361,39 @@ def simulate(n):
     while iteration < n:
         outputs, others = run_one_sim_loop(inputs, config, iteration, m, n)
         inputs = get_new_inputs(outputs, iteration)
-        #checkLaplacian(outputs["ReturnedValue"], GG, n)
+        # checkLaplacian(outputs["ReturnedValue"], GG, n)
         times_list.append(np.array(others))
         iteration += 1
 
-    determinant = computeDiagonalMult(outputs["ReturnedValue"][n*n:2*n*n], n)
-    print("FHE Sol:", determinant, "Correct Sol", len(list(nx.algorithms.tree.mst.SpanningTreeIterator(GG))))
+    computed_determinant = computeDiagonalMult(outputs["ReturnedValue"][n*n:2*n*n], n)
+    correct_determinant = len(list(nx.algorithms.tree.mst.SpanningTreeIterator(GG)))
+    print("FHE Sol:", computed_determinant, "Correct Sol", correct_determinant)
+
     iteration = 0
-    return np.array(times_list).sum(0).tolist() # others 
+    diff_mse = abs(computed_determinant - correct_determinant)**2
+    return np.array(times_list).sum(0).tolist() + [diff_mse] # others 
 
 if __name__ == "__main__":
-    simcnt = 100 #The number of simulation runs, set it to 3 during development otherwise you will wait for a long time
+    simcnt = 97 #The number of simulation runs, set it to 3 during development otherwise you will wait for a long time
     # For benchmarking you must set it to a large number, e.g., 100
     #Note that file is opened in append mode, previous results will be kept in the file
     resultfile = open("results.csv", "a")  # Measurement results are collated in this file for you to plot later on
-    resultfile.write("NodeCount,PathLength,SimCnt,CompileTime,KeyGenerationTime,EncryptionTime,ExecutionTime,DecryptionTime,ReferenceExecutionTime,Mse\n")
+    resultfile.write("NodeCount,SimCnt,CompileTime,KeyGenerationTime,EncryptionTime,ExecutionTime,DecryptionTime,ReferenceExecutionTime,Mse,DiffMse\n") # +"," +  str(diff_mse) 
     resultfile.close()
     
     print("Simulation campaing started:")
-    for nc in range(4,64,4): # Node counts for experimenting various graph sizes
+    nc_list = [12,20,24,28,36,40,44,48,52,56,60]
+    for nc in nc_list: #range(4,64,4): # Node counts for experimenting various graph sizes
         n = nc
         resultfile = open("results.csv", "a") 
         for i in range(simcnt):
             #Call the simulator
-            try:
-                compiletime, keygenerationtime, encryptiontime, executiontime, decryptiontime, referenceexecutiontime, mse = simulate(n)
-                res = str(n) + "," + str(i) + "," + str(compiletime) + "," + str(keygenerationtime) + "," +  str(encryptiontime) + "," +  str(executiontime) + "," +  str(decryptiontime) + "," +  str(referenceexecutiontime) + "," +  str(mse) + "\n"
-                print(res)
-                resultfile.write(res)
-            except Exception as e:
-                print(e, "at node count:", n, "sim count:", i)
-      
+            # try:
+            compiletime, keygenerationtime, encryptiontime, executiontime, decryptiontime, referenceexecutiontime, mse, diff_mse = simulate(n) # 
+            res = str(n) + "," + str(i) + "," + str(compiletime) + "," + str(keygenerationtime) + "," +  str(encryptiontime) + "," +  str(executiontime) + "," +  str(decryptiontime) + "," +  str(referenceexecutiontime) + "," +  str(mse) +"," +  str(diff_mse) + "\n" # 
+            print(res)
+            resultfile.write(res)
+            # except Exception as e:
+            #     print(e, "at node count:", n, "sim count:", i)
+        
         resultfile.close()
