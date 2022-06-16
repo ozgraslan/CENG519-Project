@@ -1,7 +1,5 @@
----
-bibliography:
-- references.bib
----
+
+# Abstract
 
 This report explains the secure computation of the total number of
 spanning trees using homomorphic encryption. The algorithm implemented
@@ -23,8 +21,7 @@ Kirchhoff's Matrix Tree Theorem for connected graphs.
 
 # Introduction
 
-Starting with a real-world example from [@MSTExamp], think of a
-telecommunication company that wants to layout new fiber-optic cables to
+Starting with a real-world example from [Applications of minimum spanning trees](https://personal.utdallas.edu/~besp/teaching/mst-applications.pdf), think of a telecommunication company that wants to layout new fiber-optic cables to
 some neighborhoods. Each neighborhood will have distinct cabling
 processes. For each neighborhood, the company has a graph depicting the
 routes for cable layout as edges and houses that will connect to the new
@@ -73,8 +70,8 @@ implemented as iterative matrix multiplications and updates of the
 matrices. Due to interest in doing neural network-based operations in an
 encrypted fashion using homomorphic encryption, there is a lot of
 research on efficient homomorphic matrix operations.
-[@10.1145/3243734.3243837; @https://doi.org/10.48550/arxiv.2201.12577; @Mishra2018FastSM]
-And I have chosen the work by Jiang et al. [@10.1145/3243734.3243837]
+([Jiang et al.](https://dl.acm.org/doi/10.1145/3243734.3243837), [Chiang](https://arxiv.org/pdf/2201.12577.pdf), [Mishra et al.](https://eprint.iacr.org/2018/663.pdf))
+And I have chosen the work by [Jiang et al.](https://dl.acm.org/doi/10.1145/3243734.3243837)
 for matrix multiplication operations as the test results and comparisons
 with a loop-based Dolittle Algorithm show the effectiveness of the
 implemented version.
@@ -156,11 +153,11 @@ triangular and first column of the lower triangular matrix, at each
 iteration the rows of upper triangular and columns of the lower
 triangular matrices are computed. In these computations, the only
 non-trivial computation with homomorphic encryption is the division.
-There are works [@10.1007/978-3-319-70694-8_15] that introduce
+There are works [Cheon et al.](https://link.springer.com/chapter/10.1007/978-3-319-70694-8_15) that introduce
 approximation of inverse function. However, using a these approximations
 with the other computations makes the overall architecture complex. The
 second algorithm important for the implementation is efficient matrix
-multiplications with homomorphic encryption [@10.1145/3243734.3243837].
+multiplications with homomorphic encryption from Jiang et al.
 Matrix multiplications are used for computing the upper and lower
 triangular matrices. The reasons are discussed in the next section.
 
@@ -192,7 +189,7 @@ it. After the computations by the client, client encrypts the
 concatenated matrices and sends it to server. After the zeroth
 iteration, the server computes the matrix multiplication of the lower
 and upper triangular matrices using the methods introduced in
-[@10.1145/3243734.3243837]. Then using the result of the multiplication,
+Jiang et al. Then using the result of the multiplication,
 the graph laplacian and masks computed using the iteration variable,
 server updates the matrices. The number of iterations are the number of
 nodes n. After the last iteration, the client computes the total number
@@ -211,13 +208,12 @@ matrix.
 
 ## Computing LU Decomposition with Matrix Multiplication
 
-As shown in algorithm [\[eqn:dl_it\]](#eqn:dl_it){reference-type="ref"
-reference="eqn:dl_it"}, the classical way of computing Doolittle
+As shown in above algorithm, the classical way of computing Doolittle
 Algorithm is iterative updates. In the first implementation (tagged as
 [milestone3](https://github.com/ozgraslan/CENG519-Project/tree/milestone3)
 in the github repository), the iterative version is implemented.
 However, due to memory issues discussed in
-[4](#res_dis){reference-type="ref" reference="res_dis"}, a matrix
+[Results subsection](#Results), a matrix
 multiplication based version (tagged as
 [milestone3.4](https://github.com/ozgraslan/CENG519-Project/tree/milestone3.4))
 is implemented. Using a matrix multiplication based version comes from
@@ -229,7 +225,7 @@ gives the $i^{th}$ row for the upper triangular matrix, and the
 subtraction term for the $i^{th}$ column of the lower triangular matrix
 respectively.
 
-# Results and Discussion {#res_dis}
+# Results and Discussion
 
 ## Methodology
 
@@ -264,8 +260,8 @@ algorithm (for which networkx library is used), and since CKKS is an
 aproximate scheme, the implemented algorithm is also run on plaintext
 data and it is compared to the encrypyted version.
 
-![image](figure/NodeCount x Average Times.png){width=".45\\textwidth"}
-![image](figure/NodeCount x Average Mse.png){width=".45\\textwidth"}
+![image](./figure/NodeCount\ x\ Average Times.png)
+![image](./figure/NodeCount x Average Mse.png)
 
 From these figures, it can be seen that with the increasing number of
 nodes the execution times grows exponentially. There are two main
@@ -276,8 +272,8 @@ main reason, the size of the adjacency matrix increases with the node
 size, therefore the matrix operations take more time. Below figure
 explains this behaviour.
 
-![image](figure/4 x Average Execution Time.png){width=".45\\textwidth"}
-![image](figure/32 x Average Execution Time.png){width=".45\\textwidth"}
+![image](./figure/4 x Average Execution Time.png)
+![image](./figure/32 x Average Execution Time.png)
 
 ## Discussion
 
