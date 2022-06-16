@@ -141,14 +141,11 @@ number of spanning trees are introduced. The first algorithm is called
 Doolittle Algorithm for LU Decomposition. As mentioned in the Background
 section, factorization makes the determinant easier and keeps the
 complexity of the computation to $O(n^3)$. The Doolittle Algorithm is an
-iterative algorithm to compute decomposition:[@doolittle]:
-$$\label{eqn:dl_it}
-\begin{split}
-    i &= 0 \xrightarrow[]{\forall j} U_{ij} = A_{ij}, \\ 
-    i &> 0 \xrightarrow[]{\forall j} U_{ij} = A_{ij} - \sum_{k=0}^{i-1} L_{ik}U_{kj}, \\
-    j &= 0 \xrightarrow[]{\forall i} L_{ij} = \frac{A_{ij}}{U_{jj}}, \\
-    j &> 0 \xrightarrow[]{\forall i} L_{ij} = \frac{A_{ij}- \sum_{k=0}^{j-1} L_{ik}U_{kj}}{U_{jj}}. 
-\end{split}$$ That is, starting with the first row of the upper
+iterative algorithm to compute decomposition:
+
+<img src="figure/doolittle.png" alt="Doolittle Algorithm" width="450"/>
+
+That is, starting with the first row of the upper
 triangular and first column of the lower triangular matrix, at each
 iteration the rows of upper triangular and columns of the lower
 triangular matrices are computed. In these computations, the only
@@ -260,8 +257,8 @@ algorithm (for which networkx library is used), and since CKKS is an
 aproximate scheme, the implemented algorithm is also run on plaintext
 data and it is compared to the encrypyted version.
 
-![image](./figure/NodeCount\ x\ Average Times.png)
-![image](./figure/NodeCount x Average Mse.png)
+<img src="figure/ncam.png" alt="Node Count x Average MSE" width="450"/>
+<img src="figure/ncat.png" alt="Node Count x Average Times" width="450"/>
 
 From these figures, it can be seen that with the increasing number of
 nodes the execution times grows exponentially. There are two main
@@ -272,8 +269,8 @@ main reason, the size of the adjacency matrix increases with the node
 size, therefore the matrix operations take more time. Below figure
 explains this behaviour.
 
-![image](./figure/4 x Average Execution Time.png)
-![image](./figure/32 x Average Execution Time.png)
+<img src="figure/aet4.png" alt="Average Execution Time 4 Nodes" width="450"/>
+<img src="figure/aet32.png" alt="Average Execution Time 32 Nodes" width="450"/>
 
 ## Discussion
 
