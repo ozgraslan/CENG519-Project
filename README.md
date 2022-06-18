@@ -1,4 +1,4 @@
-
+# Privacy-Preserving Computation of Total Number of Spanning Trees
 # Abstract
 
 This report explains the secure computation of the total number of
@@ -15,9 +15,7 @@ varying node sizes (between 4 and 64). Extensive analysis of the
 compilation, execution, key generation, encryption, decryption times,
 and implementation correctness is shown. Moreover, the effectiveness of
 using matrix multiplications instead of a loop-based method is discussed
-for execution times and memory usage. To sum up, this report presents a
-time and memory-efficient privacy-preserving implementation of
-Kirchhoff's Matrix Tree Theorem for connected graphs.
+for execution times and memory usage. To sum up, this report presents a privacy-preserving implementation of Kirchhoff’s Matrix Tree Theorem that has stable memory usage.
 
 # Introduction
 
@@ -114,6 +112,10 @@ with floating numbers, CKKS scheme is used. CKKS provides approximate
 floating point arithmetic on cipher-text, with addition, multiplication
 and rotation (shifting) of cipher-text.
 
+### Kirchhoff’s Matrix Tree Theorem
+
+The theorem says that, to compute the total number of spanning trees of a graph compute any cofactor of the graph laplacian. Therefore, to compute it, first the laplacian matrix and second, the determinant of the any sub-matrix of laplacian should be computed.
+
 ### Laplacian Matrix
 
 The Laplacian matrix is another representation of graphs similar to the
@@ -152,13 +154,13 @@ triangular matrices are computed. In these computations, the only
 non-trivial computation with homomorphic encryption is the division.
 There are works [Cheon et al.](https://link.springer.com/chapter/10.1007/978-3-319-70694-8_15) that introduce
 approximation of inverse function. However, using a these approximations
-with the other computations makes the overall architecture complex. The
-second algorithm important for the implementation is efficient matrix
-multiplications with homomorphic encryption from Jiang et al.
-Matrix multiplications are used for computing the upper and lower
-triangular matrices. The reasons are discussed in the next section.
+with the other computations makes the overall architecture complex. 
+
+The second algorithm important for the implementation is efficient matrix multiplications with homomorphic encryption ([Jiang et al.](https://dl.acm.org/doi/10.1145/3243734.3243837)). They use the idea of computing linear transformations with permutation matrices. The diagonal vector of permutation matrices can be computed and stored as plain-text beforehand and can be used with vector multiplication, addition and shifting to compute matrix multiplication. There are four main permutation matrices, two of which are for column and row shifts. The other two called sigma and tau permutes the matrices such that when the permuted matrices summed the matrix multiplication is obtained. For more detailed explanation please see the related paper. Matrix multiplications
+are used for computing the upper and lower triangular matrices. The reasons are discussed in the next section.
 
 # Main Contributions
+The main contribution of this work is secure implementation of Kirchhoff’s Matrix Three Theorem using Microsoft SEAL. The implementation can be viewed in three components. For detailed algorithm perspective, please see [Appendix](#Appendix).
 
 ## Client-Server Architecture
 
@@ -300,4 +302,5 @@ which client only computes the reciprocal of specific values and use
 those values to updates. The server side computes graph laplacian and
 doolittle LU decoposition algorihtm using matrix multiplications. As
 mentioned in the discussion, the matrix-based implementation provides
-stable memory usage throughout the iterations.
+stable memory usage throughout the iterations. As final remarks,
+the matrix-based implementation creates redundant computations almost in all iterations.Therefore, using a similar method that also uses the iteration number for changing the matrix multiplication, can make the algorithm a lot more efficient.
