@@ -303,4 +303,11 @@ those values to updates. The server side computes graph laplacian and
 doolittle LU decoposition algorihtm using matrix multiplications. As
 mentioned in the discussion, the matrix-based implementation provides
 stable memory usage throughout the iterations. As final remarks,
-the matrix-based implementation creates redundant computations almost in all iterations.Therefore, using a similar method that also uses the iteration number for changing the matrix multiplication, can make the algorithm a lot more efficient.
+the matrix-based implementation creates redundant computations almost in all iterations.
+Therefore, using a similar method that also uses the iteration number for changing the matrix multiplication, 
+can make the algorithm a lot more efficient.
+
+# Appendix
+<img src="figure/cient.png" alt="Client" width="500"/>
+<img src="figure/server.png" alt="Server" width="500"/>
+<img src="figure/itcs.png" alt="Client-Server" width="500"/>
